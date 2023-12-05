@@ -1,0 +1,7 @@
+work
+.nextflow
+.nextflow.log*
+__pycache__
+.vscode
+output
+.DS_Store
