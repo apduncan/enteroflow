@@ -5,3 +5,5 @@ __pycache__
 .vscode
 output
 .DS_Store
+results*.json
+submats.npz

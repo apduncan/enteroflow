@@ -61,6 +61,16 @@ def l2norm_calc(x: np.ndarray, wh: np.ndarray) -> float:
     """
     return np.sqrt(np.sum((np.array(x) - np.array(wh))**2))
 
+def sparsity_calc(x: np.ndarray) -> float:
+    """Calculate the sparsity of a matrix
+
+    :param x: 2d matrix
+    :type x: np.ndarray
+    :return: Sparisty of matrix (proportion of non-zero value)
+    :rtype: float
+    """
+    return 1.0 - (np.count_nonzero(x) / float(x.size))
+
 def cut_in_four(m: np.ndarray, h: int = 3):
     """Takes a matrix and cuts it in 4 for cross validation following a ratio h
     e.g h = 3: the M1 submatrix for validation will have size 1/9 of the 
