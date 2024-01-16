@@ -52,7 +52,7 @@ process rankCombineScores {
     input:
         path(scores, stageAs: "results*.json")
     // We will publish this as it is one of the primary outputs
-    publishDir 'output', mode: 'copy', overwrite: true
+    publishDir { params.publish_dir }, mode: 'copy', overwrite: true
     // The output file here will have the rank as a column, so we can just pass
     // this to a collector process to concatenate without knowledge of the rank
     output:
@@ -87,7 +87,7 @@ process publishAnalysis {
     output:
         path "rank_analysis.ipynb"
         path "rank_analysis.html"
-    publishDir 'output', mode: 'copy', overwrite: true
+    publishDir { params.publish_dir }, mode: 'copy', overwrite: true
     script:
         """
         jupyter nbconvert --execute --to html rank_analysis.ipynb
@@ -130,7 +130,7 @@ process reguCombineScores {
     input:
         path(scores, stageAs: "results*.json")
     // We will publish this as it is one of the primary outputs
-    publishDir 'output', mode: 'copy', overwrite: true
+    publishDir { params.publish_dir }, mode: 'copy', overwrite: true
     // The output file here will have the rank as a column, so we can just pass
     // this to a collector process to concatenate without knowledge of the rank
     output:
@@ -164,11 +164,11 @@ process reguPublishAnalysis {
         path "biCV_reco_error.json"
         path "biCV_cosine.json"
         path "biCV_l2norm.json"
-        path "bicv_sparsity.json"
+        path "biCV_sparsity.json"
     output:
         path "regu_analysis.ipynb"
         path "regu_analysis.html"
-    publishDir 'output', mode: 'copy', overwrite: true
+    publishDir { params.publish_dir }, mode: 'copy', overwrite: true
     script:
         """
         jupyter nbconvert --execute --to html regu_analysis.ipynb
