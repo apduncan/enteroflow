@@ -151,7 +151,7 @@ def cli(matrix: str, seed: int, iteration: int) -> None:
         i=iteration
     )
     mx: List[np.ndarray] = bicv_3x3(folds)
-    np.savez("submats.npz", *mx)
+    np.savez_compressed("submats.npz", *mx)
 
 if __name__ == "__main__":
     cli()

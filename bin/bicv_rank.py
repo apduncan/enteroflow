@@ -175,7 +175,7 @@ def cli(folds: str,
     # Load shuffled, split, and rearranged matrices
     arrays: NpzFile
     logging.info("Loading matrices")
-    with np.load(folds) as arrays:
+    with np.load(folds, allow_pickle=True) as arrays:
         arr_list: List[np.ndarray] = [arrays[f] for f in arrays.files]
         res, rss, reco_error, cosine, l2_norm = run_cv(
             mx9         = arr_list,
