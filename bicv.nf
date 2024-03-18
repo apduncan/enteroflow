@@ -1,20 +1,25 @@
 import java.util.stream.Collectors;
 
+// Workaround for allowing comma separated list of rank upper/lower
+params.rankslist = params.ranks?.split(',') as List
+
 process biCVSplit {
     // Shuffle data matrix and split into 9 submatrices for bi-cross validation
     label 'canBeLocal'
     input:
         path matrix
-        val iter
     output:
-        tuple path('submats.npz'), val(iter)
+        path 'shuffle_*.npz'
     script:
         """
-        bicv_split.py -i $iter -m $matrix -s $params.seed
+        cva_split.py -i $params.n -m $matrix -s $params.seed
         """
     stub:
         """
-        touch submats.npz;
+        for i in \$(seq 1 10);
+        do
+            touch shuffle_${i}.npz
+        done
         """
 }
 
@@ -24,54 +29,44 @@ process rankBiCv {
     // Here this is okay, as we will make a channel which emits the desired 
     // ranks to search.
     input:
-        tuple val(rank), path('submats.npz'), val(iter)
+        tuple val(rank), path(x)
     // The results file has all the params in it, so process which joins
     // can use that instead
     output:
-        path('results.json')
+        path('results.pickle')
     cpus 4
     script:
         """
-        bicv_rank.py \
-        --folds submats.npz \
+        cva_rank.py \
+        --folds $x \
         --seed $params.seed \
         --rank $rank \
-        --num_runs $params.rank_iterations \
         --max_iter $params.nmf_max_iter \
-        --shuffle_num $iter \
         --verbose
         """
     stub:
         """
-        touch results.json
+        touch results.pickle
         """
 }
 
 process rankCombineScores {
     label 'canBeLocal'
     input:
-        path(scores, stageAs: "results*.json")
+        path(results, stageAs: "results*.pickle")
     // We will publish this as it is one of the primary outputs
     publishDir { params.publish_dir }, mode: 'copy', overwrite: true
     // The output file here will have the rank as a column, so we can just pass
     // this to a collector process to concatenate without knowledge of the rank
     output:
-        path "biCV_evar.json"
-        path "biCV_rss.json"
-        path "biCV_reco_error.json"
-        path "biCV_cosine.json"
-        path "biCV_l2norm.json"
+        path "rank_combined.pickle", emit: pickle
     script:
         """
-        bicv_rank_combine.py $scores
+        cva_rank_combine.py $results
         """
     stub:
         """
-        touch "biCV_evar.json"
-        touch "biCV_rss.json"
-        touch "biCV_reco_error.json"
-        touch "biCV_cosine.json"
-        touch "biCV_l2norm.json"
+        touch "rank_combined.pickle"
         """
 }
 
@@ -79,14 +74,11 @@ process publishAnalysis {
     label 'canBeLocal'
     input:
         path "rank_analysis.ipynb"
-        path "biCV_evar.json"
-        path "biCV_rss.json"
-        path "biCV_reco_error.json"
-        path "biCV_cosine.json"
-        path "biCV_l2norm.json"
+        path "rank_combined.pickle"
     output:
         path "rank_analysis.ipynb"
         path "rank_analysis.html"
+        path "rank_analysis.tsv"
     publishDir { params.publish_dir }, mode: 'copy', overwrite: true
     script:
         """
@@ -180,28 +172,6 @@ process reguPublishAnalysis {
         """
 }
 
-workflow bicv_rank {
-    take:
-    shuffles
-
-    main:
-    // CHANNELS
-    // Ranks to search across
-    rank_channel = Channel.of(params.ranks.get(0)..params.ranks.get(1))
-
-    // PROCESSES
-    // Perform BiCV on each shuffle for each rank
-    // Map to make sure that the second element of the tuple is a list of files,
-    // rather than all being flattened into a single list
-    bicv_res = rankBiCv(
-        rank_channel
-        .combine(shuffles)
-    )
-    comb_res = rankCombineScores(bicv_res.collect())
-    // Add the analysis notebook to the output
-    publishAnalysis(file("resources/bicv_rank_analysis.ipynb"), comb_res)
-}
-
 workflow bicv_regu {
     take:
     shuffles
@@ -220,22 +190,43 @@ workflow bicv_regu {
     bicv_res = reguBiCv(
         rank_channel
         .combine(shuffles)
-    )
+    ).view( { it } )
     comb_res = reguCombineScores(bicv_res.collect())
     // Add the analysis notebook to the output
     reguPublishAnalysis(file("resources/bicv_regu_analysis.ipynb"), comb_res)
 }
 
+workflow bicv_rank {
+    take:
+    shuffles
+
+    main:
+    rank_channel = Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
+
+    // PROCESSES
+    // Perform BiCV on each shuffle for each rank
+    // Map to make sure that the second element of the tuple is a list of files,
+    // rather than all being flattened into a single list
+    bicv_res = rankBiCv(
+        rank_channel
+        .combine(shuffles.flatten())
+    )
+
+    // Combine results
+    bicv_comb = rankCombineScores(bicv_res.collect())
+
+    publishAnalysis(file("resources/cva_rank_analysis.ipynb"), bicv_comb)
+    
+}
+
 workflow {
-    // Numbers of shuffles of matrix
-    shuffle_channel = Channel.of(1..params.n)
     // The input data - value channel so it can be consumed endlessly
     data_channel = file(params.matrix)
     // Shuffle and split matrix n times
-    splits = biCVSplit(data_channel, shuffle_channel)
+    splits = biCVSplit(data_channel)
 
     // Rank selection
     bicv_rank(splits)
     // Regularisation selection
-    bicv_regu(splits)
+    // bicv_regu(splits)
 }
