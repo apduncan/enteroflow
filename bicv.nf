@@ -1,11 +1,12 @@
 import java.util.stream.Collectors;
 
-// Workaround for allowing comma separated list of rank upper/lower
-params.rankslist = params.ranks?.split(',') as List
+// Workaround for allowing comma separated list of rank upper/lower bounds
+def rl = params.ranks?.split(',') as List
+params.rankslist = rl.collect { it as int }
 
 process biCVSplit {
     // Shuffle data matrix and split into 9 submatrices for bi-cross validation
-    label 'canBeLocal'
+    label 'largemem'
     input:
         path matrix
     output:
@@ -51,7 +52,7 @@ process rankBiCv {
 }
 
 process rankCombineScores {
-    label 'canBeLocal'
+    label 'largemem'
     input:
         path(results, stageAs: "results*.pickle")
     // We will publish this as it is one of the primary outputs
@@ -71,7 +72,7 @@ process rankCombineScores {
 }
 
 process publishAnalysis {
-    label 'canBeLocal'
+    label 'largemem'
     input:
         path "rank_analysis.ipynb"
         path "rank_combined.pickle"
@@ -83,6 +84,25 @@ process publishAnalysis {
     script:
         """
         jupyter nbconvert --execute --to html rank_analysis.ipynb
+        """
+}
+
+process publishRankDecompositions {
+    input:
+        path "rank_decomposition.ipynb"
+        path data
+        val rank
+    output:
+        path "decomposition.ipynb"
+        path "decomposition.html"
+        path("model", type: "dir") 
+    publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
+    script:
+        """
+        papermill rank_decomposition.ipynb decomposition.ipynb \
+        -p data ${data} -p rank ${rank} -p top_n 1 \
+        -p seed ${params.seed} -p max_iter ${params.nmf_max_iter}
+        jupyter nbconvert --to html decomposition.ipynb
         """
 }
 
@@ -227,6 +247,12 @@ workflow {
 
     // Rank selection
     bicv_rank(splits)
+    // Making decompositions for all the target ranks
+    publishRankDecompositions(
+        file("resources/rank_decomposition.ipynb"),
+        data_channel,
+        Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
+    )
     // Regularisation selection
     // bicv_regu(splits)
 }
