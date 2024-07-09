@@ -13,7 +13,7 @@ process biCVSplit {
         path 'shuffle_*.npz'
     script:
         """
-        cva_split.py -i $params.n -m $matrix -s $params.seed
+        cva_split.py -n $params.num_shuffles -m $matrix -s $params.seed
         """
     stub:
         """
@@ -42,7 +42,9 @@ process rankBiCv {
         --folds $x \
         --seed $params.seed \
         --rank $rank \
-        --max_iter $params.nmf_max_iter \
+        --max_iter $params.max_iter \
+        --beta_loss $params.beta_loss \
+        --init $params.init \
         --verbose
         """
     stub:
@@ -101,7 +103,7 @@ process publishRankDecompositions {
         """
         papermill rank_decomposition.ipynb decomposition.ipynb \
         -p data ${data} -p rank ${rank} -p top_n 1 \
-        -p seed ${params.seed} -p max_iter ${params.nmf_max_iter}
+        -p seed ${params.seed} -p max_iter ${params.max_iter}
         jupyter nbconvert --to html decomposition.ipynb
         """
 }
@@ -126,7 +128,9 @@ process reguBiCv {
         --seed $params.seed \
         --rank $rank \
         --alpha $alpha \
-        --max_iter $params.nmf_max_iter \
+        --max_iter $params.max_iter \
+        --init $params.init \
+        --beta_loss $params.beta_loss \
         --verbose 
         """
     stub:
@@ -177,13 +181,15 @@ process reguPublishDecomposition {
     script:
         """
         cva_decompose.py \
-        --input $matrix \
+        --matrix $matrix \
         --regu_res $regu_res \
         --seed $params.seed \
         --rank $rank \
-        --max_iter $params.nmf_max_iter \
+        --max_iter $params.max_iter \
         --l1_ratio $params.l1_ratio \
-        --random_starts $params.random_starts
+        --random_starts $params.random_starts \
+        --beta_loss $params.beta_loss \
+        --init $params.init
         """
 }
 
@@ -210,12 +216,10 @@ workflow bicv_regu {
     // Group runs on the same rank together
     grpd_regu_res = bicv_res.groupTuple(
         by: 0,
-        size: params.alpha.size()*params.n,
+        size: params.alpha.size()*params.num_shuffles,
         remainder: true
     )
-    grpd_regu_res.view()
     comb_res = reguCombineScores(grpd_regu_res)
-    comb_res.view()
     // Add the analysis notebook to the output
     reguPublishAnalysis(file("resources/cva_regu_analysis.ipynb"), comb_res)
     // Make a regularised decomposition for each rank requested
