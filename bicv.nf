@@ -113,23 +113,21 @@ process reguBiCv {
     // Here this is okay, as we will make a channel which emits the desired 
     // ranks to search.
     input:
-        tuple val(rank), path('submats.npz'), val(iter)
+        tuple val(rank), val(alpha), path(x)
     // The results file has all the params in it, so process which joins
     // can use that instead
     output:
-        path('results.json')
+        tuple val(rank), path('results.pickle')
     cpus 4
     script:
         """
-        bicv_regu.py \
-        --folds submats.npz \
+        cva_alpha.py \
+        --folds $x \
         --seed $params.seed \
         --rank $rank \
-        --num_runs 1 \
+        --alpha $alpha \
         --max_iter $params.nmf_max_iter \
-        --shuffle_num $iter \
-        --verbose \
-        ${params.alpha.join(" ")}
+        --verbose 
         """
     stub:
         """
@@ -138,57 +136,54 @@ process reguBiCv {
 }
 
 process reguCombineScores {
-    label 'canBeLocal'
+    label 'largemem'
     input:
-        path(scores, stageAs: "results*.json")
-    // We will publish this as it is one of the primary outputs
-    publishDir { params.publish_dir }, mode: 'copy', overwrite: true
-    // The output file here will have the rank as a column, so we can just pass
-    // this to a collector process to concatenate without knowledge of the rank
+        tuple val(rank), path(results, stageAs: "results*.pickle")
     output:
-        path "biCV_regu_evar.json"
-        path "biCV_regu_rss.json"
-        path "biCV_regu_reco_error.json"
-        path "biCV_regu_cosine.json"
-        path "biCV_regu_l2norm.json"
-        path "biCV_regu_sparsity.json"
+        tuple val(rank), path("regu_combined.pickle")
     script:
         """
-        bicv_regu_combine.py $scores
+        cva_rank_combine.py -g alpha $results
         """
     stub:
         """
-        touch "biCV_regu_evar.json"
-        touch "biCV_regu_rss.json"
-        touch "biCV_regu_reco_error.json"
-        touch "biCV_regu_cosine.json"
-        touch "biCV_regu_l2norm.json"
-        touch "biCV_regu_sparsity.json"
+        touch "regu_combined.pickle"
         """
 }
 
 process reguPublishAnalysis {
-    label 'canBeLocal'
+    label 'largemem'
     input:
         path "regu_analysis.ipynb"
-        path "biCV_evar.json"
-        path "biCV_rss.json"
-        path "biCV_reco_error.json"
-        path "biCV_cosine.json"
-        path "biCV_l2norm.json"
-        path "biCV_sparsity.json"
+        tuple val(rank), path("regu_combined.pickle")
     output:
         path "regu_analysis.ipynb"
         path "regu_analysis.html"
-    publishDir { params.publish_dir }, mode: 'copy', overwrite: true
+        path "regu_analysis.tsv"
+    publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
     script:
         """
         jupyter nbconvert --execute --to html regu_analysis.ipynb
         """
-    stub:
+}
+
+process reguPublishDecomposition {
+    input:
+        path matrix
+        tuple val(rank), path(regu_res)
+    output:
+        path("regularised_model", type: "dir")
+    publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
+    script:
         """
-        touch regu_analysis.ipynb
-        touch regu_analysis.html
+        cva_decompose.py \
+        --input $matrix \
+        --regu_res $regu_res \
+        --seed $params.seed \
+        --rank $rank \
+        --max_iter $params.nmf_max_iter \
+        --l1_ratio $params.l1_ratio \
+        --random_starts $params.random_starts
         """
 }
 
@@ -199,21 +194,32 @@ workflow bicv_regu {
     main:
     // CHANNELS
     // Ranks to search across
-    rank_channel = Channel.from(params.regu_rank).view()
+    rank_channel = Channel.from(params.regu_rank)
     // Alphas to search across
-    alpha_channcel = Channel.from(params.alpha)
+    alpha_channel = Channel.from(params.alpha)
+    // Make a channel which is a combination of rank, alpha and shuffle
+    regu_sel_channel = rank_channel
+        .combine(alpha_channel)
+        .combine(shuffles.flatten())
 
     // PROCESSES
     // Perform BiCV on each shuffle for each rank
     // Map to make sure that the second element of the tuple is a list of files,
     // rather than all being flattened into a single list
-    bicv_res = reguBiCv(
-        rank_channel
-        .combine(shuffles)
-    ).view( { it } )
-    comb_res = reguCombineScores(bicv_res.collect())
+    bicv_res = reguBiCv(regu_sel_channel)
+    // Group runs on the same rank together
+    grpd_regu_res = bicv_res.groupTuple(
+        by: 0,
+        size: params.alpha.size()*params.n,
+        remainder: true
+    )
+    grpd_regu_res.view()
+    comb_res = reguCombineScores(grpd_regu_res)
+    comb_res.view()
     // Add the analysis notebook to the output
-    reguPublishAnalysis(file("resources/bicv_regu_analysis.ipynb"), comb_res)
+    reguPublishAnalysis(file("resources/cva_regu_analysis.ipynb"), comb_res)
+    // Make a regularised decomposition for each rank requested
+    reguPublishDecomposition(file(params.matrix), comb_res)
 }
 
 workflow bicv_rank {
@@ -245,6 +251,8 @@ workflow {
     // Shuffle and split matrix n times
     splits = biCVSplit(data_channel)
 
+    // Regularisation selection
+    bicv_regu(splits)
     // Rank selection
     bicv_rank(splits)
     // Making decompositions for all the target ranks
@@ -253,6 +261,4 @@ workflow {
         data_channel,
         Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
     )
-    // Regularisation selection
-    // bicv_regu(splits)
 }
