@@ -221,7 +221,7 @@ workflow bicv_regu {
     )
     comb_res = reguCombineScores(grpd_regu_res)
     // Add the analysis notebook to the output
-    reguPublishAnalysis(file("resources/cva_regu_analysis.ipynb"), comb_res)
+    reguPublishAnalysis(file("${projectDir}/resources/cva_regu_analysis.ipynb"), comb_res)
     // Make a regularised decomposition for each rank requested
     reguPublishDecomposition(file(params.matrix), comb_res)
 }
@@ -245,7 +245,7 @@ workflow bicv_rank {
     // Combine results
     bicv_comb = rankCombineScores(bicv_res.collect())
 
-    publishAnalysis(file("resources/cva_rank_analysis.ipynb"), bicv_comb)
+    publishAnalysis(file("${projectDir}/resources/cva_rank_analysis.ipynb"), bicv_comb)
     
 }
 
@@ -261,7 +261,7 @@ workflow {
     bicv_rank(splits)
     // Making decompositions for all the target ranks
     publishRankDecompositions(
-        file("resources/rank_decomposition.ipynb"),
+        file("${projectDir}/resources/rank_decomposition.ipynb"),
         data_channel,
         Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
     )
