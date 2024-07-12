@@ -2,7 +2,7 @@
 import logging
 import pathlib
 import pickle
-from typing import Dict, List
+from typing import Dict, List, Optional
 from cvanmf import denovo
 import click
 import pandas as pd
@@ -12,7 +12,10 @@ import pandas as pd
               type=click.Path(exists=True, file_okay=True, dir_okay=False,
                               readable=True),
               help="Input full matrix")
-@click.option("--regu_res", "-r", required=True,
+@click.option("--output", "-o", required=True,
+              type=click.Path(exists=False, file_okay=False, dir_okay=True),
+              help="Directory to write output to.")
+@click.option("--regu_res", "-r", required=False,
               type=click.Path(exists=True, file_okay=True, dir_okay=False,
                               readable=True),
               help="Results from regularisation selection, to pick alpha.")
@@ -37,7 +40,8 @@ import pandas as pd
               help="Show verbose logs.")
 
 def cli(matrix: str,
-        regu_res: str,
+        output: str,
+        regu_res: Optional[str],
         random_starts: int,
         seed: int,
         rank: int,
@@ -46,9 +50,10 @@ def cli(matrix: str,
         init: str,
         beta_loss: str,
         verbose: bool) -> None:
-    """Produce a decomposition with heuristically selected alpha.
+    """Produce a decomposition with heuristically selected alpha when provided.
 
     :param matrix: Full matrix
+    :param output: Directory to write to
     :param regu_res: Regularisation selection results
     :param seed: Random state seed
     :param rank: Rank of decomposition to run
@@ -61,15 +66,19 @@ def cli(matrix: str,
     if verbose:
         logging.basicConfig(level=logging.INFO)
 
-    # Load regularisation results, and matrix
-    with open(regu_res, 'rb') as f:
-        regu_dict: Dict[float, list[denovo.BicvResult]] = pickle.load(f)
     mat: pd.DataFrame = pd.read_csv(matrix, index_col=0, delimiter="\t")
 
-    # Get heuristically determined best alpha
-    best_alpha: float = denovo.suggest_alpha(regu_dict)
-    # We don't need to scale this, will have already been scaled earlier if
-    # desired
+    best_alpha: float = 0.0
+    if regu_res is not None:
+        # Load regularisation results, and matrix
+        with open(regu_res, 'rb') as f:
+            regu_dict: Dict[float, list[denovo.BicvResult]] = pickle.load(f)
+        # Get heuristically determined best alpha
+        best_alpha = denovo.suggest_alpha(regu_dict)
+        # We don't need to scale this, will have already been scaled earlier if
+        # desired
+    else:
+        logging.info("No regularisation results, not applying regularisation.")
 
     logging.info(
         "Full Matrix Decomposition\n"
@@ -101,7 +110,7 @@ def cli(matrix: str,
 
     # Output the best decomposition
     best_d: denovo.Decomposition = decompositions[rank][0]
-    best_d.save("./regularised_model")
+    best_d.save(output)
 
 if __name__ == "__main__":
     cli()

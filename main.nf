@@ -24,6 +24,7 @@ process biCVSplit {
         """
 }
 
+// Rank selection
 process rankBiCv {
     // Perform bi-fold cross validation for a given rank and matrix
     // When multiple inputs, each input must come from a different channel
@@ -176,13 +177,14 @@ process reguPublishDecomposition {
         path matrix
         tuple val(rank), path(regu_res)
     output:
-        path("regularised_model", type: "dir")
+        tuple val(rank), path("regularised_model", type: "dir")
     publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
     script:
         """
         cva_decompose.py \
         --matrix $matrix \
         --regu_res $regu_res \
+        --output regularised_model \
         --seed $params.seed \
         --rank $rank \
         --max_iter $params.max_iter \
@@ -191,6 +193,63 @@ process reguPublishDecomposition {
         --beta_loss $params.beta_loss \
         --init $params.init
         """
+}
+
+process reguPublishNotebook {
+    input:
+        path notebook
+        tuple val(rank), path(model)
+    output:
+        path "regularised_decomposition.ipynb"
+        path "regularised_decomposition.html"
+    publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
+    script:
+        """
+        papermill ${notebook} regularised_decomposition.ipynb \
+        -p model ${model} 
+        jupyter nbconvert --to html regularised_decomposition.ipynb
+        """
+
+}
+
+// Non-regularised decompositions on full matrix
+process publishDecomposition {
+    input:
+        path matrix
+        val(rank)
+    output:
+        tuple val(rank), path("model", type: "dir")
+    publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
+    script:
+        """
+        cva_decompose.py \
+        --matrix $matrix \
+        --output model \
+        --seed $params.seed \
+        --rank $rank \
+        --max_iter $params.max_iter \
+        --l1_ratio $params.l1_ratio \
+        --random_starts $params.random_starts \
+        --beta_loss $params.beta_loss \
+        --init $params.init
+        """
+}
+
+process publishDecompositionNotebook {
+    input:
+        path notebook
+        tuple val(rank), path(model)
+    output:
+        path "decomposition.ipynb"
+        path "decomposition.html"
+    publishDir { "${params.publish_dir}/${rank}" }, mode: 'copy', overwrite: true
+    script:
+        """
+        papermill ${notebook} decomposition.ipynb \
+        -p model ${model} 
+        jupyter nbconvert --to html decomposition.ipynb
+        """
+
 }
 
 workflow bicv_regu {
@@ -223,7 +282,11 @@ workflow bicv_regu {
     // Add the analysis notebook to the output
     reguPublishAnalysis(file("${projectDir}/resources/cva_regu_analysis.ipynb"), comb_res)
     // Make a regularised decomposition for each rank requested
-    reguPublishDecomposition(file(params.matrix), comb_res)
+    decomp_channel = reguPublishDecomposition(file(params.matrix), comb_res)
+    reguPublishNotebook(
+        file("${projectDir}/resources/rank_decomposition.ipynb"),
+        decomp_channel
+    )
 }
 
 workflow bicv_rank {
@@ -249,6 +312,19 @@ workflow bicv_rank {
     
 }
 
+workflow publish_rank {
+    main:
+    rank_channel = Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
+
+    // Trying moving decomposition generation out of the notebook, as 
+    // the kernel seems to die with larger decompositions
+    decomp_channel = publishDecomposition(file(params.matrix), rank_channel)
+    publishDecompositionNotebook(
+        file("${projectDir}/resources/rank_decomposition.ipynb"),
+        decomp_channel
+    )
+}
+
 workflow {
     // The input data - value channel so it can be consumed endlessly
     data_channel = file(params.matrix)
@@ -260,9 +336,10 @@ workflow {
     // Rank selection
     bicv_rank(splits)
     // Making decompositions for all the target ranks
-    publishRankDecompositions(
-        file("${projectDir}/resources/rank_decomposition.ipynb"),
-        data_channel,
-        Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
-    )
+    // publishRankDecompositions(
+    //     file("${projectDir}/resources/rank_decomposition.ipynb"),
+    //     data_channel,
+    //     Channel.of(params.rankslist.get(0)..params.rankslist.get(1))
+    // )
+    publish_rank()
 }
