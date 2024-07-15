@@ -91,6 +91,7 @@ process publishAnalysis {
 }
 
 process publishRankDecompositions {
+    label 'largememandpu'
     input:
         path "rank_decomposition.ipynb"
         path data
@@ -173,6 +174,7 @@ process reguPublishAnalysis {
 }
 
 process reguPublishDecomposition {
+    label 'largememandcpu'
     input:
         path matrix
         tuple val(rank), path(regu_res)
@@ -214,6 +216,7 @@ process reguPublishNotebook {
 
 // Non-regularised decompositions on full matrix
 process publishDecomposition {
+    label 'largememandcpu'
     input:
         path matrix
         val(rank)
