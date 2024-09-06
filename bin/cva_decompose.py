@@ -3,9 +3,10 @@ import logging
 import pathlib
 import pickle
 from typing import Dict, List, Optional
-from cvanmf import denovo
+from cvanmf import denovo, stability
 import click
 import pandas as pd
+import plotnine
 
 @click.command()
 @click.option("--matrix", "-i", required=True,
@@ -98,7 +99,7 @@ def cli(matrix: str,
             x=mat,
             ranks=[rank],
             random_starts=random_starts,
-            top_n=1,
+            top_n=random_starts,
             seed=seed,
             alpha=best_alpha,
             l1_ratio=l1_ratio,
@@ -111,6 +112,32 @@ def cli(matrix: str,
     # Output the best decomposition
     best_d: denovo.Decomposition = decompositions[rank][0]
     best_d.save(output)
+
+    # Calculate the stability based values signature similarity now, as only 
+    # the best decomposition will be retained.
+    sig_per_inch: float = 0.4
+    width: float = 1 + (sig_per_inch * rank)
+    sig_sim: pd.DataFrame = stability.signature_stability(
+        decompositions[rank]
+    )
+    output_pth: pathlib.Path = pathlib.Path(output)
+    sig_sim.to_csv(output_pth / "signature_similarity.tsv", sep="\t")
+    plt_sig_sim: plotnine.ggplot = stability.plot_signature_stability(
+        sig_sim,
+        colors=best_d.colors,
+        ncol=1
+    ) + plotnine.theme(figure_size=(3, width))
+    plt_sig_sim.save(output_pth / "signature_similarity.pdf")
+
+    dispersion_s: pd.Series = denovo.dispersion(decompositions)
+    cophenetic_s: pd.Series = denovo.cophenetic_correlation(decompositions)
+    similarity_s: pd.Series = denovo.signature_similarity(decompositions)
+    stability_df: pd.DataFrame = pd.concat(
+        [dispersion_s, cophenetic_s, similarity_s],
+        axis=1
+    )
+    stability_df.to_csv(output_pth / "stability_ranksel_values.tsv", sep="\t")
+
 
 if __name__ == "__main__":
     cli()
