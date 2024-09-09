@@ -255,6 +255,23 @@ process publishDecompositionNotebook {
 
 }
 
+process rankCombineStability {
+    input:
+        path(model, arity: '1..*', stageAs: "model*")
+        path notebook
+    output:
+        // path "stability_rank_analysis.ipynb"
+        path "stability_rank_analysis.tsv"
+        path "stability_rank_analysis.html"
+    publishDir "${params.publish_dir}", mode: 'copy', overwrite: true
+    script:
+        """
+        stab_combine.py ${model}
+        jupyter nbconvert --execute --to html ${notebook} \
+        --output stability_rank_analysis
+        """
+}
+
 workflow bicv_regu {
     take:
     shuffles
@@ -325,6 +342,13 @@ workflow publish_rank {
     publishDecompositionNotebook(
         file("${projectDir}/resources/rank_decomposition.ipynb"),
         decomp_channel
+    )
+    model_only_channel = decomp_channel
+        .map{ it.get(1) }
+        .collect()
+    rankCombineStability(
+        model_only_channel,
+        file("${projectDir}/resources/stab_rank_analysis.ipynb")
     )
 }
 
