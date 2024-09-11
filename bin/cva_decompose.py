@@ -3,7 +3,8 @@ import logging
 import pathlib
 import pickle
 from typing import Dict, List, Optional
-from cvanmf import denovo, stability
+from cvanmf import denovo
+from cvanmf.stability import signature_stability, plot_signature_stability
 import click
 import pandas as pd
 import plotnine
@@ -37,9 +38,10 @@ import plotnine
                                  'itakura-saito'], case_sensitive=False),
               default="kullback-leibler",
               help="Beta-loss function to use during decomposition.")
+@click.option("--stability", type=bool, default=False,
+              help="Calculate stability based rank selection coefficients. This can significantly increase memory requirements an execution time for large matrices.")
 @click.option("--verbose", "-v", type=bool, default=False, is_flag=True,
               help="Show verbose logs.")
-
 def cli(matrix: str,
         output: str,
         regu_res: Optional[str],
@@ -50,6 +52,7 @@ def cli(matrix: str,
         max_iter: int,
         init: str,
         beta_loss: str,
+        stability: bool,
         verbose: bool) -> None:
     """Produce a decomposition with heuristically selected alpha when provided.
 
@@ -65,7 +68,11 @@ def cli(matrix: str,
     :param verbose: Activate verbose logging
     """
     if verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s %(message)s', 
+            datefmt='%m/%d/%Y %I:%M:%S %p'
+        )
 
     mat: pd.DataFrame = pd.read_csv(matrix, index_col=0, delimiter="\t")
 
@@ -117,26 +124,32 @@ def cli(matrix: str,
     # the best decomposition will be retained.
     sig_per_inch: float = 0.4
     width: float = 1 + (sig_per_inch * rank)
-    sig_sim: pd.DataFrame = stability.signature_stability(
+    logging.info("Calculating signature stability")
+    sig_sim: pd.DataFrame = signature_stability(
         decompositions[rank]
     )
     output_pth: pathlib.Path = pathlib.Path(output)
     sig_sim.to_csv(output_pth / "signature_similarity.tsv", sep="\t")
-    plt_sig_sim: plotnine.ggplot = stability.plot_signature_stability(
+    plt_sig_sim: plotnine.ggplot = plot_signature_stability(
         sig_sim,
         colors=best_d.colors,
         ncol=1
     ) + plotnine.theme(figure_size=(3, width))
     plt_sig_sim.save(output_pth / "signature_similarity.pdf")
 
-    dispersion_s: pd.Series = denovo.dispersion(decompositions)
-    cophenetic_s: pd.Series = denovo.cophenetic_correlation(decompositions)
-    similarity_s: pd.Series = denovo.signature_similarity(decompositions)
-    stability_df: pd.DataFrame = pd.concat(
-        [dispersion_s, cophenetic_s, similarity_s],
-        axis=1
-    )
-    stability_df.to_csv(output_pth / "stability_ranksel_values.tsv", sep="\t")
+    if stability:
+        logging.info("Calculating dispersion")
+        dispersion_s: pd.Series = denovo.dispersion(decompositions)
+        logging.info("Calculating cophenetic correlation")
+        cophenetic_s: pd.Series = denovo.cophenetic_correlation(decompositions)
+        logging.info("Calculating signature similarity")
+        similarity_s: pd.Series = denovo.signature_similarity(decompositions)
+        logging.info("Writing stability rank selection results")
+        stability_df: pd.DataFrame = pd.concat(
+            [dispersion_s, cophenetic_s, similarity_s],
+            axis=1
+        )
+        stability_df.to_csv(output_pth / "stability_ranksel_values.tsv", sep="\t")
 
 
 if __name__ == "__main__":

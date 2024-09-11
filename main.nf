@@ -91,7 +91,7 @@ process publishAnalysis {
 }
 
 process publishRankDecompositions {
-    label 'largememandpu'
+    label 'largememandcpu'
     input:
         path "rank_decomposition.ipynb"
         path data
@@ -193,7 +193,8 @@ process reguPublishDecomposition {
         --l1_ratio $params.l1_ratio \
         --random_starts $params.random_starts \
         --beta_loss $params.beta_loss \
-        --init $params.init
+        --init $params.init \
+        --stability false
         """
 }
 
@@ -234,7 +235,8 @@ process publishDecomposition {
         --l1_ratio $params.l1_ratio \
         --random_starts $params.random_starts \
         --beta_loss $params.beta_loss \
-        --init $params.init
+        --init $params.init \
+        --stability $params.stability
         """
 }
 
@@ -343,13 +345,17 @@ workflow publish_rank {
         file("${projectDir}/resources/rank_decomposition.ipynb"),
         decomp_channel
     )
-    model_only_channel = decomp_channel
-        .map{ it.get(1) }
-        .collect()
-    rankCombineStability(
-        model_only_channel,
-        file("${projectDir}/resources/stab_rank_analysis.ipynb")
-    )
+    // If stability rank selection coefficients have been calculated, combine
+    // them to make a rank selection report based on stability.
+    if ( params.stability ) {
+        model_only_channel = decomp_channel
+            .map{ it.get(1) }
+            .collect()
+        rankCombineStability(
+            model_only_channel,
+            file("${projectDir}/resources/stab_rank_analysis.ipynb")
+        )
+    }
 }
 
 workflow {
